@@ -44,14 +44,6 @@ class Command{
         }
 };
 
-int AcceptConnection(int fSocket)
-{
-    socklen_t addrlen = 0;
-    struct sockaddr_in Client_addr;
-    addrlen = sizeof(Client_addr);
-    return accept(fSocket, (struct sockaddr*)&Client_addr, &addrlen);
-}
-
 int DealDir(char *fPath, char *nResult)
 {
     if(fPath == nullptr)
@@ -82,13 +74,14 @@ int DealDir(char *fPath, char *nResult)
     }
     return 0;
 }
-ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
+ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
 {
     off_t orig;
-    char buf[BUF_SIZE];
+    char buf[BSIZE];
     size_t toRead, numRead, numSent, totSent;
 
-    if (offset != NULL) {
+    if(offset != NULL)
+    {
         /* Save current file offset and set offset to value in '*offset' */
         orig = lseek(in_fd, 0, SEEK_CUR);
         if (orig == -1)
@@ -98,8 +91,9 @@ ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
     }
 
     totSent = 0;
-    while (count > 0) {
-        toRead = count<BUF_SIZE ? count : BUF_SIZE;
+    while (count > 0) 
+    {
+        toRead = count<BSIZE ? count : BSIZE;
 
         numRead = read(in_fd, buf, toRead);
         if (numRead == -1)
@@ -110,7 +104,8 @@ ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
         numSent = write(out_fd, buf, numRead);
         if (numSent == -1)
             return -1;
-        if (numSent == 0) {               /* Should never happen */
+        if (numSent == 0) 
+        {               
             perror("sendfile: write() transferred 0 bytes");
             exit(-1);
         }
@@ -130,58 +125,7 @@ ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
     }
     return totSent;
 }
-void ftp_retr(Command *cmd, State *state)
-{
-
-  if(fork()==0){
-    int connection;
-    int fd;
-    struct stat stat_buf;
-    off_t offset = 0;
-    int sent_total = 0;
-    if(state->logged_in){
-
-      /* Passive mode */
-      if(state->mode == SERVER){
-        if(access(cmd->arg,R_OK)==0 && (fd = open(cmd->arg,O_RDONLY))){
-          fstat(fd,&stat_buf);
-          
-          state->message = "150 Opening BINARY mode data connection.\n";
-          
-          write_state(state);
-          
-          connection = accept_connection(state->sock_pasv);
-          close(state->sock_pasv);
-          if(sent_total = sendfile(connection, fd, &offset, stat_buf.st_size)){
-            
-            if(sent_total != stat_buf.st_size){
-              perror("ftp_retr:sendfile");
-              exit(EXIT_SUCCESS);
-            }
-
-            state->message = "226 File send OK.\n";
-          }else{
-            state->message = "550 Failed to read file.\n";
-          }
-        }else{
-          state->message = "550 Failed to get file\n";
-        }
-      }else{
-        state->message = "550 Please use PASV instead of PORT.\n";
-      }
-    }else{
-      state->message = "530 Please login with USER and PASS.\n";
-    }
-
-    close(fd);
-    close(connection);
-    write_state(state);
-    exit(EXIT_SUCCESS);
-  }
-  state->mode = NORMAL;
-  close(state->sock_pasv);
-}
-int main()
+int CreateSocket(int fPort)
 {
     struct sockaddr_in nAddr;
     int nSockfd = socket(AF_INET,SOCK_STREAM,0);
@@ -200,7 +144,7 @@ int main()
     }
     
     nAddr.sin_family = AF_INET;
-    nAddr.sin_port = htons(CMD_PORT);
+    nAddr.sin_port = htons(fPort);
     nAddr.sin_addr.s_addr = INADDR_ANY;
     bzero(&(nAddr.sin_zero), sizeof(nAddr.sin_zero));
 
@@ -211,15 +155,24 @@ int main()
         cerr<<"listening"<<endl;
     }
 
-    cout<<"listening..."<<endl;
-
-    struct sockaddr_in nClient;
-    socklen_t length = sizeof(nClient);
-
+    cout<<"Port "<<fPort<<" listening..."<<endl;
+    
+    return nSockfd;
+}
+int AcceptConnection(int fSocket)
+{
+    socklen_t addrlen = 0;
+    struct sockaddr_in Client_addr;
+    addrlen = sizeof(Client_addr);
+    return accept(fSocket, (struct sockaddr*)&Client_addr, &addrlen);
+}
+int main()
+{
+    int nSockfd = CreateSocket(CMD_PORT); 
+    
     while(1)
     {
-        int nConn;
-        nConn = accept(nSockfd, (struct sockaddr*)&nClient, &length);
+        int nConn = AcceptConnection(nSockfd);
         
         if(nConn < 0)
         {
@@ -273,7 +226,34 @@ int main()
                     {
                         if(nPath.st_mode & S_IFREG)
                         {
-                            cout<<"file\n";
+                            if(fork()==0)
+                            {
+                                close(nConn);
+                                int nTranSock = CreateSocket(TRAN_PORT);
+                                int nFileConn = AcceptConnetcion(nTranSock);
+                            
+                                int nFd = open(nCommond->GetArg, O_RDONLY);
+
+                                struct stat nFstat;
+                                fstat(fd, &nFstat);
+                                
+                                off_t nOffset = 0;
+                                int nSendtot=SendFile(nFileConn, nFd, nOffset, nFstat.st_size);
+
+                                if(nSendtot != nFstat.st_size)
+                                {
+                                    cerr<<"sendfile error"<<endl;
+                                    break;
+                                }
+
+                                exit(0);
+                            }
+                            else
+                            {
+                                char nMessage[BSIZE]="Sending file..";
+                                write(nConn, nMessage, sizeof(nMessage));
+                            }
+
                         }
                         else if(nPath.st_mode & S_IFDIR)
                         {
@@ -283,7 +263,7 @@ int main()
                             if(DealDir(nCommand->GetArg(), nFileList) < 0)
                             {
                                 cerr<<"path error"<<endl;
-                                continue;
+                                break;
                             }
                             
                             if(strlen(nFileList) > BSIZE)
