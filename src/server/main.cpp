@@ -152,7 +152,7 @@ int CreateSocket(int fPort)
 
     if(listen(nSockfd, backlog) == -1)
     {
-        cerr<<"listening"<<endl;
+        cerr<<"listen"<<endl;
     }
 
     cout<<"Port "<<fPort<<" listening..."<<endl;
@@ -172,8 +172,13 @@ int main()
     
     while(1)
     {
-        int nConn = AcceptConnection(nSockfd);
-        
+        //int nConn = AcceptConnection(nSockfd);
+        socklen_t addrlen = 0;
+        struct sockaddr_in Client_addr;
+        addrlen = sizeof(Client_addr);
+        int nConn = accept(nSockfd, (struct sockaddr*)&Client_addr, &addrlen);
+        cout<<"Accepted."<<endl;
+
         if(nConn < 0)
         {
             cerr<<"connect"<<endl;
@@ -230,20 +235,20 @@ int main()
                             {
                                 close(nConn);
                                 int nTranSock = CreateSocket(TRAN_PORT);
-                                int nFileConn = AcceptConnetcion(nTranSock);
+                                int nFileConn = AcceptConnection(nTranSock);
                             
-                                int nFd = open(nCommond->GetArg, O_RDONLY);
+                                int nFd = open(nCommand->GetArg(), O_RDONLY);
 
                                 struct stat nFstat;
-                                fstat(fd, &nFstat);
+                                fstat(nFd, &nFstat);
                                 
                                 off_t nOffset = 0;
-                                int nSendtot=SendFile(nFileConn, nFd, nOffset, nFstat.st_size);
+                                int nSendtot = SendFile(nFileConn, nFd, &nOffset, nFstat.st_size);
 
                                 if(nSendtot != nFstat.st_size)
                                 {
                                     cerr<<"sendfile error"<<endl;
-                                    break;
+                                    exit(1);
                                 }
 
                                 exit(0);
