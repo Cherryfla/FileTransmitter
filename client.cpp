@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/shm.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <iostream>
 
@@ -43,56 +44,21 @@ class Command{
             return static_cast<char*>(arg);
         }
 };
-ssize_t ReceiveFile(int out_fd, int in_fd, off_t * offset, size_t count )
+ssize_t ReceiveFile(FILE *out_fd, int in_fd)
 {
-    off_t orig;
     char buf[BSIZE];
-    size_t toRead, numRead, numSent, totSent;
-
-    if(offset != NULL)
-    {
-        // Save current file offset and set offset to value in '*offset'
-        orig = lseek(in_fd, 0, SEEK_CUR);
-        if (orig == -1)
+    size_t numRead = 0;
+    size_t totRecv = 0;
+    while(1){
+        numRead = read(in_fd, buf, BSIZE);
+        if(numRead == -1)
             return -1;
-        if (lseek(in_fd, *offset, SEEK_SET) == -1)
-            return -1;
+        if(numRead == 0)
+            break;
+        fwrite(buf, 1, numRead, out_fd);
+        totRecv += numRead;
     }
-
-    totSent = 0;
-    while (count > 0) 
-    {
-        toRead = count<BSIZE ? count : BSIZE;
-
-        numRead = read(in_fd, buf, toRead);
-        if (numRead == -1)
-            return -1;
-        if (numRead == 0)
-            break;                      // EOF 
-
-        numSent = write(out_fd, buf, numRead);
-        if (numSent == -1)
-            return -1;
-        if (numSent == 0) 
-        {               
-            perror("sendfile: write() transferred 0 bytes");
-            exit(-1);
-        }
-
-        count -= numSent;
-        totSent += numSent;
-    }
-
-    if (offset != NULL) {
-        // Return updated file offset in '*offset', and reset the file offset
-        //   to the value it had when we were called.
-        *offset = lseek(in_fd, 0, SEEK_CUR);
-        if (*offset == -1)
-            return -1;
-        if (lseek(in_fd, orig, SEEK_SET) == -1)
-            return -1;
-    }
-    return totSent;
+    return totRecv;
 }
 int ConnectSocket(char *fServerIp, int  fServerPort)
 {
@@ -117,18 +83,20 @@ int ConnectSocket(char *fServerIp, int  fServerPort)
 
     if( connect(sockfd, (struct sockaddr *)&nServAddr, sizeof(nServAddr)) == -1)
     {
-            tm.tv_sec = TIME_OUT_TIME;
-            tm.tv_usec = 0;
-            FD_ZERO(&set);
-            FD_SET(sockfd, &set);
-            if( select(sockfd+1, NULL, &set, NULL, &tm) > 0)
-            {
-                    getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len);
-                    if(error == 0) ret = true;
-                        else ret = false;
-            } 
+        tm.tv_sec = TIME_OUT_TIME;
+        tm.tv_usec = 0;
+        FD_ZERO(&set);
+        FD_SET(sockfd, &set);
+        if( select(sockfd+1, NULL, &set, NULL, &tm) > 0)
+        {
+            getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len);
+            if(error == 0) 
+                ret = true;
             else 
                 ret = false;
+        } 
+        else
+            ret = false;
     }
     else 
         ret = true;
@@ -162,76 +130,75 @@ int main(int argc, char *argv[])
     }
     
     char sendbuf[BSIZE];
- 
+    char recvbuf[BSIZE];
+
+    int nReadnum = read(nSockfd, recvbuf, BSIZE);
+    if(nReadnum > 0)
+        cerr<<recvbuf<<endl;
+
     while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL)
     {
         Command *nCommand = new Command;
         nCommand->Init(sendbuf);
         
-        write(nSockfd, sendbuf, strlen(sendbuf)); 
+        write(nSockfd, sendbuf, sizeof(sendbuf)); 
         
         if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
         {
             if(fork()==0)
             {
-                signal(SIGCHLD, SIG_IGN);
+                //signal(SIGCHLD, SIG_IGN);
                 close(nSockfd);
                 
                 int nFileConn = ConnectSocket(pIp, TRAN_PORT);
                 if(nFileConn < 0 )
-                {
                     exit(0);
-                }
+               // else
+               //     cout<<"File transfer beginning..\n";
 
-                char *nFilePath = nCommand->GetCommand();
+                char *nFilePath = nCommand->GetArg();
                 int nNameLen = strlen(nFilePath);
                 int nPos = nNameLen-1;
                 for(; nPos >= 0 ; nPos--)
-                {
                     if(nFilePath[nPos] == '/')
-                    {
                         break;
-                    }
-                }
+
                 char nFileName[BSIZE];
                 memset(nFileName, 0, sizeof(nFileName));
                 strncpy(nFileName, nFilePath+nPos+1, nNameLen-nPos-1);
                 
-                int nFd = open(nFileName, O_WRONLY|O_CREAT);
-                if(nFd < 0)
+                FILE *pFd = fopen(nFileName, "ab");
+                if(pFd == nullptr)
                 {
                     cerr<<"open file"<<endl;
                 }
 
-                struct stat nFstat;
-                fstat(nFd, &nFstat);
-
-                off_t nOffset = 0;
-                int nRecvtot = ReceiveFile(nFd, nFileConn, &nOffset, nFstat.st_size);
-
-                if(nRecvtot != nFstat.st_size)
-                {
-                    cout<<"recvfile error"<<endl;
-                    exit(1);
-                }
+                int nRecvtot = ReceiveFile(pFd, nFileConn);
+                
+                cout<<"Completed.\n";
+                fclose(pFd);
                 exit(0);
             }
             else
             {
-                char recvbuf[BSIZE];
                 memset(recvbuf, 0, sizeof(recvbuf));
                 int nReadnum = read(nSockfd, recvbuf, BSIZE);
                 if(nReadnum > BSIZE)
                 {
                     cerr<<"receive limit exceed"<<endl;
                 }
+
+                cout<<recvbuf<<endl;
+                wait(nullptr);
             } 
         }
         else if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
             break;
 
         delete nCommand;
+        
         memset(sendbuf, 0, sizeof(sendbuf));
+        memset(recvbuf, 0, sizeof(recvbuf));
     }
     close(nSockfd);
     return 0;
