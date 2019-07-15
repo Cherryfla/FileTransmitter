@@ -150,7 +150,16 @@ int main(int argc, char *argv[])
                 //signal(SIGCHLD, SIG_IGN);
                 close(nSockfd);
                 
-                int nFileConn = ConnectSocket(pIp, TRAN_PORT);
+                int nFileConn;
+                sleep(1);
+
+                for(int i=0; i < 5; i++)
+                {
+                //    printf("Try to connect the %dth time..\n",i);
+                    nFileConn = ConnectSocket(pIp, TRAN_PORT);
+                    if(nFileConn > 0)
+                        break;
+                }
                 if(nFileConn < 0 )
                     exit(0);
                // else
@@ -167,6 +176,26 @@ int main(int argc, char *argv[])
                 memset(nFileName, 0, sizeof(nFileName));
                 strncpy(nFileName, nFilePath+nPos+1, nNameLen-nPos-1);
                 
+                //  judge if file exist
+                //  printf("judge\n");
+                if(access(nFileName,0) == 0){
+                    char nInput[5];
+                    memset(nInput, 0 ,sizeof(nInput));
+                    do{
+                        printf("File exist, Cover it? (y/n)\n");
+                        scanf("%s",nInput);
+                        if(nInput[0] == 'Y')
+                            nInput[0] = 'y';
+                        else if(nInput[0] == 'N')
+                            nInput[0] = 'n';
+                    }while(nInput[0] != 'n' && nInput[0] != 'y');
+                    
+                    if(nInput[0] == 'n'){
+                        cout<<"Terminated.\n";
+                        close(nFileConn);
+                        exit(0);
+                    }
+                }
                 FILE *pFd = fopen(nFileName, "ab");
                 if(pFd == nullptr)
                 {
@@ -174,9 +203,14 @@ int main(int argc, char *argv[])
                 }
 
                 int nRecvtot = ReceiveFile(pFd, nFileConn);
-                
+                if(nRecvtot < 0)
+                {
+                    cerr<<"Recvfile error"<<endl;
+                    exit(1);
+                }
                 cout<<"Completed.\n";
                 fclose(pFd);
+                close(nFileConn);
                 exit(0);
             }
             else
@@ -187,13 +221,22 @@ int main(int argc, char *argv[])
                 {
                     cerr<<"receive limit exceed"<<endl;
                 }
-
                 cout<<recvbuf<<endl;
                 wait(nullptr);
             } 
         }
         else if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
             break;
+        else
+        {
+            int nReadnum = read(nSockfd, recvbuf, BSIZE);
+            if(nReadnum > BSIZE)
+            {
+                cerr<<"receive limit exceed"<<endl;
+            }
+            cout<<recvbuf<<endl;
+        }
+        
 
         delete nCommand;
         

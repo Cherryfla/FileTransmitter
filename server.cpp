@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
@@ -50,11 +51,10 @@ int DealDir(char *fPath, char *nResult)
     {
         return -1;
     }
-    DIR *nDir;
-    struct dirent *pDir;
-    nDir = opendir(fPath);
+    DIR *nDir = opendir(fPath);
+    struct dirent *pDir = nullptr;
 
-    if(pDir == nullptr)
+    if(nDir == nullptr)
     {
         strcat(nResult, "Can't open this dictionary");
     }
@@ -97,7 +97,7 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
 
         numRead = read(in_fd, buf, toRead);
         
-        cout<<"numRead: "<<numRead<<endl;
+        //cout<<"numRead: "<<numRead<<endl;
         if(numRead == -1)
             return -1;
         if(numRead == 0)
@@ -187,11 +187,9 @@ int main()
             exit(1);
         }
 
-
         char nBuff[1024];
         memset(nBuff, 0, sizeof(nBuff));
 
-        Command *nCommand = new Command;
         int pid = fork();
 
         if(pid < 0)
