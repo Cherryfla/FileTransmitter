@@ -60,6 +60,20 @@ ssize_t ReceiveFile(FILE *out_fd, int in_fd)
     }
     return totRecv;
 }
+int DoQuery(){
+    char nInput[5];
+    memset(nInput, 0 ,sizeof(nInput));
+    do{
+        printf("File exist, Cover it? (y/n)\n");
+        scanf("%s",nInput);
+        if(nInput[0] == 'Y')
+            nInput[0] = 'y';
+        else if(nInput[0] == 'N')
+            nInput[0] = 'n';
+    }while(nInput[0] != 'n' && nInput[0] != 'y');
+    
+    return nInput[0]=='y'?1:0;
+}
 int ConnectSocket(char *fServerIp, int  fServerPort)
 {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -107,6 +121,62 @@ int ConnectSocket(char *fServerIp, int  fServerPort)
     else
         return -1;
 }
+
+void TryRecvFile(char* fServerIp, Command *nCommand)
+{
+    int nFileConn;
+  //  sleep(1);
+
+    for(int i=0; i < 10; i++)
+    {
+        nFileConn = ConnectSocket(fServerIp, TRAN_PORT);
+        if(nFileConn > 0)
+            break;
+    }
+    if(nFileConn < 0)
+    {
+        printf("Connect failed\n");
+        exit(0);
+    }
+// else
+//     cout<<"File transfer beginning..\n";
+
+    char *nFilePath = nCommand->GetArg();
+    int nNameLen = strlen(nFilePath);
+    int nPos = nNameLen-1;
+    for(; nPos >= 0; nPos--)
+        if(nFilePath[nPos] == '/')
+            break;
+
+    char nFileName[BSIZE];
+    memset(nFileName, 0, sizeof(nFileName));
+    strncpy(nFileName, nFilePath+nPos+1, nNameLen-nPos-1);
+    
+    if(access(nFileName,0) == 0){
+        int nQueryRes = DoQuery();
+        if(!nQueryRes){
+            cout<<"Terminated.\n";
+            close(nFileConn);
+            exit(0);
+        }
+    }
+    FILE *pFd = fopen(nFileName, "ab");
+    if(pFd == nullptr)
+    {
+        cerr<<"open file"<<endl;
+    }
+
+    int nRecvtot = ReceiveFile(pFd, nFileConn);
+    if(nRecvtot < 0)
+    {
+        cerr<<"Recvfile error"<<endl;
+        exit(1);
+    }
+
+    fclose(pFd);
+    close(nFileConn);
+}
+
 int main(int argc, char *argv[])
 {
     if(argc != 2)
@@ -125,124 +195,83 @@ int main(int argc, char *argv[])
         exit(1);
     }
     else
-    {
         cout<<"Connected."<<endl;
-    }
     
     char sendbuf[BSIZE];
     char recvbuf[BSIZE];
-
+    
     int nReadnum = read(nSockfd, recvbuf, BSIZE);
     if(nReadnum > 0)
         cerr<<recvbuf<<endl;
+    
+    fd_set nRset,nAllset;
+    FD_ZERO(&nRset);
+    FD_SET(STDIN_FILENO, &nRset);
+    FD_SET(nSockfd, &nRset);
+    FD_SET(STDIN_FILENO, &nAllset);
+    FD_SET(nSockfd, &nAllset);
 
-    while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL)
+    while(true)
     {
-        Command *nCommand = new Command;
-        nCommand->Init(sendbuf);
-        
-        write(nSockfd, sendbuf, sizeof(sendbuf)); 
-        
-        if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
+        nRset = nAllset;
+        int nSelectRes = nSelectRes = select(nSockfd+1, &nRset, nullptr, nullptr, nullptr);
+        if(nSelectRes == -1 && errno == EINTR )
+            continue;
+        else if(nSelectRes == -1)
         {
-            if(fork()==0)
-            {
-                //signal(SIGCHLD, SIG_IGN);
-                close(nSockfd);
-                
-                int nFileConn;
-                sleep(1);
-
-                for(int i=0; i < 5; i++)
-                {
-                //    printf("Try to connect the %dth time..\n",i);
-                    nFileConn = ConnectSocket(pIp, TRAN_PORT);
-                    if(nFileConn > 0)
-                        break;
-                }
-                if(nFileConn < 0 )
-                    exit(0);
-               // else
-               //     cout<<"File transfer beginning..\n";
-
-                char *nFilePath = nCommand->GetArg();
-                int nNameLen = strlen(nFilePath);
-                int nPos = nNameLen-1;
-                for(; nPos >= 0 ; nPos--)
-                    if(nFilePath[nPos] == '/')
-                        break;
-
-                char nFileName[BSIZE];
-                memset(nFileName, 0, sizeof(nFileName));
-                strncpy(nFileName, nFilePath+nPos+1, nNameLen-nPos-1);
-                
-                //  judge if file exist
-                //  printf("judge\n");
-                if(access(nFileName,0) == 0){
-                    char nInput[5];
-                    memset(nInput, 0 ,sizeof(nInput));
-                    do{
-                        printf("File exist, Cover it? (y/n)\n");
-                        scanf("%s",nInput);
-                        if(nInput[0] == 'Y')
-                            nInput[0] = 'y';
-                        else if(nInput[0] == 'N')
-                            nInput[0] = 'n';
-                    }while(nInput[0] != 'n' && nInput[0] != 'y');
-                    
-                    if(nInput[0] == 'n'){
-                        cout<<"Terminated.\n";
-                        close(nFileConn);
-                        exit(0);
-                    }
-                }
-                FILE *pFd = fopen(nFileName, "ab");
-                if(pFd == nullptr)
-                {
-                    cerr<<"open file"<<endl;
-                }
-
-                int nRecvtot = ReceiveFile(pFd, nFileConn);
-                if(nRecvtot < 0)
-                {
-                    cerr<<"Recvfile error"<<endl;
-                    exit(1);
-                }
-                cout<<"Completed.\n";
-                fclose(pFd);
-                close(nFileConn);
-                exit(0);
-            }
-            else
-            {
-                memset(recvbuf, 0, sizeof(recvbuf));
-                int nReadnum = read(nSockfd, recvbuf, BSIZE);
-                if(nReadnum > BSIZE)
-                {
-                    cerr<<"receive limit exceed"<<endl;
-                }
-                cout<<recvbuf<<endl;
-                wait(nullptr);
-            } 
+            perror("Select");
+            exit(1);
         }
-        else if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
-            break;
-        else
+        if(FD_ISSET(STDIN_FILENO, &nRset))
+        {
+            fgets(sendbuf, sizeof(sendbuf), stdin);
+
+            Command *nCommand = new Command;
+            nCommand->Init(sendbuf);
+            
+            write(nSockfd, sendbuf, sizeof(sendbuf)); 
+            
+            if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
+            {
+                if(fork()==0)
+                {
+                    //signal(SIGCHLD, SIG_IGN);
+                    close(nSockfd);
+
+                    TryRecvFile(pIp, nCommand);
+
+                    cout<<"Completed.\n";
+                    exit(0);
+                }
+                else
+                {
+                    wait(nullptr);
+                }
+            }
+            else if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
+                break;
+
+            delete nCommand;
+            
+            memset(sendbuf, 0, sizeof(sendbuf));
+            memset(recvbuf, 0, sizeof(recvbuf));
+        }
+        
+        if(FD_ISSET(nSockfd, &nRset))
         {
             int nReadnum = read(nSockfd, recvbuf, BSIZE);
             if(nReadnum > BSIZE)
             {
-                cerr<<"receive limit exceed"<<endl;
+                cerr<<"Receive limit exceed."<<endl;
+            }
+            if(nReadnum == 0){
+                cout<<"Section terminated.";
+                break;
             }
             cout<<recvbuf<<endl;
         }
-        
-
-        delete nCommand;
-        
-        memset(sendbuf, 0, sizeof(sendbuf));
-        memset(recvbuf, 0, sizeof(recvbuf));
     }
+    
     close(nSockfd);
     return 0;
 }

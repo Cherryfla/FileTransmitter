@@ -4,7 +4,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
@@ -51,10 +50,11 @@ int DealDir(char *fPath, char *nResult)
     {
         return -1;
     }
-    DIR *nDir = opendir(fPath);
-    struct dirent *pDir = nullptr;
+    DIR *nDir;
+    struct dirent *pDir;
+    nDir = opendir(fPath);
 
-    if(nDir == nullptr)
+    if(pDir == nullptr)
     {
         strcat(nResult, "Can't open this dictionary");
     }
@@ -82,7 +82,7 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
 
     if(offset != NULL)
     {
-        // Save current file offset and set offset to value in '*offset' 
+        /* Save current file offset and set offset to value in '*offset' */
         orig = lseek(in_fd, 0, SEEK_CUR);
         if (orig == -1)
             return -1;
@@ -96,20 +96,18 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
         toRead = count<BSIZE ? count : BSIZE;
 
         numRead = read(in_fd, buf, toRead);
-        
-        //cout<<"numRead: "<<numRead<<endl;
-        if(numRead == -1)
+        if (numRead == -1)
             return -1;
-        if(numRead == 0)
+        if (numRead == 0)
             break;                      /* EOF */
 
         numSent = write(out_fd, buf, numRead);
-        if(numSent == -1)
+        if (numSent == -1)
             return -1;
-        if(numSent == 0) 
+        if (numSent == 0) 
         {               
-            cerr<<"sendfile: write() transferred 0 bytes\n";
-            return -1;
+            perror("sendfile: write() transferred 0 bytes");
+            exit(-1);
         }
 
         count -= numSent;
@@ -187,9 +185,11 @@ int main()
             exit(1);
         }
 
+
         char nBuff[1024];
         memset(nBuff, 0, sizeof(nBuff));
 
+        Command *nCommand = new Command;
         int pid = fork();
 
         if(pid < 0)
@@ -219,7 +219,6 @@ int main()
                 Command *nCommand = new Command;
                 nCommand->Init(nBuff);
                 
-                cout<<"Recive message: "<<nBuff<<endl;
                 if(strncmp(nCommand->GetCommand(), "QUIT", 3) == 0)
                 {
                     break;
@@ -237,15 +236,7 @@ int main()
                                 close(nConn);
                                 int nTranSock = CreateSocket(TRAN_PORT);
                                 int nFileConn = AcceptConnection(nTranSock);
-
-                                if(nFileConn > 0)
-                                    cout<<"File transmition port open.\n";
-                                else
-                                {
-                                    cerr<<"File transmition error\n";
-                                    exit(1);
-                                }
-                                
+                            
                                 int nFd = open(nCommand->GetArg(), O_RDONLY);
 
                                 struct stat nFstat;
@@ -259,16 +250,13 @@ int main()
                                     cerr<<"sendfile error"<<endl;
                                     exit(1);
                                 }
-                                
-                                close(nFd);
-                                close(nFileConn);
+
                                 exit(0);
                             }
                             else
                             {
-                                char nMessage[BSIZE] = "Transmitting file..";
+                                char nMessage[BSIZE]="Sending file..";
                                 write(nConn, nMessage, sizeof(nMessage));
-                                wait(nullptr);
                             }
 
                         }
@@ -288,7 +276,7 @@ int main()
                                 memset(nFileList, 0, sizeof(nFileList));
                                 strcat(nFileList, "too many files");
                             }
-                            write(nConn, nFileList, BSIZE);
+                            write(nConn, nFileList, sizeof(nFileList));
 
                         }
                         else
