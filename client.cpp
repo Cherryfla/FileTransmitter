@@ -49,7 +49,8 @@ ssize_t ReceiveFile(FILE *out_fd, int in_fd)
     char buf[BSIZE];
     size_t numRead = 0;
     size_t totRecv = 0;
-    while(1){
+    while(1)
+    {
         numRead = read(in_fd, buf, BSIZE);
         if(numRead == -1)
             return -1;
@@ -125,7 +126,6 @@ int ConnectSocket(char *fServerIp, int  fServerPort)
 void TryRecvFile(char* fServerIp, Command *nCommand)
 {
     int nFileConn;
-  //  sleep(1);
 
     for(int i=0; i < 10; i++)
     {
@@ -134,12 +134,7 @@ void TryRecvFile(char* fServerIp, Command *nCommand)
             break;
     }
     if(nFileConn < 0)
-    {
-        printf("Connect failed\n");
         exit(0);
-    }
-// else
-//     cout<<"File transfer beginning..\n";
 
     char *nFilePath = nCommand->GetArg();
     int nNameLen = strlen(nFilePath);
@@ -235,9 +230,7 @@ int main(int argc, char *argv[])
             {
                 if(fork()==0)
                 {
-                    //signal(SIGCHLD, SIG_IGN);
                     close(nSockfd);
-
                     TryRecvFile(pIp, nCommand);
 
                     cout<<"Completed.\n";

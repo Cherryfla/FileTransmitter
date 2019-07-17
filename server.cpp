@@ -5,21 +5,24 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/epoll.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
 #include <signal.h>
 #include <unistd.h>
 #include <dirent.h>
-#include <string>
+#include <string.h>
+#include <stdlib.h>
+#include <vector>
 
 #define CMD_PORT 8080
 #define TRAN_PORT 8081
 #define BSIZE 1024
 
 using namespace std;
-
-const int backlog=5;
 
 class Command{
     private:
@@ -44,8 +47,16 @@ class Command{
             return static_cast<char*>(arg);
         }
 };
-
-int DealDir(char *fPath, char *nResult)
+inline void EchoBack(int nConn, const char nMessage[])
+{
+    write(nConn, nMessage, BSIZE);
+}
+inline void  ErrorExit(const char nError[])
+{
+    perror(nError);
+    exit(EXIT_FAILURE);
+}
+int Split(char *fPath, char *nResult)
 {
     if(fPath == nullptr)
     {
@@ -94,7 +105,6 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
     while (count > 0) 
     {
         toRead = count<BSIZE ? count : BSIZE;
-
         numRead = read(in_fd, buf, toRead);
         
         //cout<<"numRead: "<<numRead<<endl;
@@ -127,23 +137,35 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
     }
     return totSent;
 }
+void DealDir(int fConn,Command* nCommand)
+{
+    char nFileList[BSIZE];
+    memset(nFileList, 0, sizeof(nFileList));
+    
+    if(Split(nCommand->GetArg(), nFileList) < 0)
+    {
+        cerr<<"path error"<<endl;
+        return;
+    }
+    
+    if(strlen(nFileList) > BSIZE)
+    {
+        memset(nFileList, 0, sizeof(nFileList));
+        strcat(nFileList, "too many files");
+    }
+    write(fConn, nFileList, BSIZE);
+}
 int CreateSocket(int fPort)
 {
     struct sockaddr_in nAddr;
     int nSockfd = socket(AF_INET,SOCK_STREAM,0);
     if(nSockfd == -1)
-    {
-        cerr<<"Socket"<<endl;
-        exit(1);
-    }
+        ErrorExit("socket");
     
     // solve error:"bind: Address already in use"
     int reuse = 1;
-    if(setsockopt(nSockfd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse)) < 0)
-    {
-        cerr<<"setsockopt"<<endl;
-        exit(1);
-    }
+    if(setsockopt(nSockfd, SOL_SOCKET,SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+        ErrorExit("setsockopt");
     
     nAddr.sin_family = AF_INET;
     nAddr.sin_port = htons(fPort);
@@ -152,171 +174,176 @@ int CreateSocket(int fPort)
 
     ::bind(nSockfd, (const struct sockaddr*)&nAddr, sizeof(nAddr));
 
-    if(listen(nSockfd, backlog) == -1)
-    {
-        cerr<<"listen"<<endl;
-    }
-
-    cout<<"Port "<<fPort<<" listening..."<<endl;
+    if(listen(nSockfd, SOMAXCONN) == -1)
+        ErrorExit("listen");
     
     return nSockfd;
 }
-int AcceptConnection(int fSocket)
+/*
+ *给定时限连接,wait_second为时限,为0是是正常的接收连接
+ */
+int AcceptConnection(int fd, unsigned int wait_seconds)
 {
-    socklen_t addrlen = 0;
-    struct sockaddr_in Client_addr;
-    addrlen = sizeof(Client_addr);
-    return accept(fSocket, (struct sockaddr*)&Client_addr, &addrlen);
+    int ret;
+    struct sockaddr_in addr;
+    socklen_t addrlen = sizeof(struct sockaddr_in);
+
+    if (wait_seconds > 0)
+    {
+        fd_set accept_fdset;
+        struct timeval timeout;
+        FD_ZERO(&accept_fdset);
+        FD_SET(fd, &accept_fdset);
+        timeout.tv_sec = wait_seconds;
+        timeout.tv_usec = 0;
+        do
+        {
+            ret=select(fd+1, &accept_fdset, nullptr, nullptr, &timeout);
+        } while (ret < 0 && errno == EINTR);
+        if (ret == -1)
+            return  -1;
+        else if (ret == 0)
+        {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+    }
+    
+    ret = accept(fd, (struct sockaddr*)&addr, &addrlen);
+    if (ret == -1)
+        ErrorExit("Accept");
+
+    printf("ip=%s, port=%d\n",inet_ntoa(addr.sin_addr),htons(addr.sin_port));
+    return ret;
+}
+void DealFile(int nConn, Command* nCommand){
+    if(fork()==0)
+    {
+        close(nConn);
+        int nTranSock = CreateSocket(TRAN_PORT);
+        int nFileConn = AcceptConnection(nTranSock, 1);
+        
+        if(nFileConn > 0)
+            cout<<"File transmition port open.\n";
+        else
+        {
+            cerr<<"failed to transmit file.\n";
+            EchoBack(nConn, "failed to transmit file.\n");
+            return;
+        }
+        
+        int nFd = open(nCommand->GetArg(), O_RDONLY);
+
+        struct stat nFstat;
+        fstat(nFd, &nFstat);
+        
+        off_t nOffset = 0;
+        int nSendtot = SendFile(nFileConn, nFd, &nOffset, nFstat.st_size);
+
+        if(nSendtot != nFstat.st_size)
+        {
+            cerr<<"sendfile error"<<endl;
+            exit(1);
+        }
+        
+        close(nFd);
+        close(nFileConn);
+        exit(0);
+    }
+    else
+    {
+        EchoBack(nConn, "File transmition.\n");
+        wait(nullptr);
+    }
 }
 int main()
 {
     int nSockfd = CreateSocket(CMD_PORT); 
     
+    int nEpollfd;
+    nEpollfd = epoll_create1(EPOLL_CLOEXEC);
+
+    struct epoll_event nEvent;
+    nEvent.data.fd = nSockfd;
+    nEvent.events = EPOLLIN | EPOLLET;
+    epoll_ctl(nEpollfd, EPOLL_CTL_ADD, nSockfd, &nEvent);
+    
+    int nConnCount = 0;
+    vector<int>nClients;
+    vector<struct epoll_event>nEvents(16);
+
     while(1)
     {
-        //int nConn = AcceptConnection(nSockfd);
-        socklen_t addrlen = 0;
-        struct sockaddr_in Client_addr;
-        addrlen = sizeof(Client_addr);
-        int nConn = accept(nSockfd, (struct sockaddr*)&Client_addr, &addrlen);
-        cout<<"Accepted."<<endl;
+        int nReady = epoll_wait(nEpollfd, &*nEvents.begin(), static_cast<int>(nEvents.size()), -1);
 
-        if(nConn < 0)
-        {
-            cerr<<"connect"<<endl;
-            exit(1);
+        if (nReady == -1){
+            if (errno == EINTR)
+                continue;
+            ErrorExit("epoll_wait");
         }
+        if (nReady == 0)
+            continue;
+        if ((size_t)nReady == nEvents.size())
+            nEvents.resize(nEvents.size()*2);
 
-        char nBuff[1024];
-        memset(nBuff, 0, sizeof(nBuff));
-
-        int pid = fork();
-
-        if(pid < 0)
+        for (int i = 0 ; i < nReady; i++)
         {
-            fprintf(stderr, "Cannot create child process.");
-            exit(1);
-        }
-        
-        if(pid == 0)
-        {
-            close(nSockfd);
-
-            char nWelcome[BSIZE] = "Welcome to the server.\n";
-            write(nConn, nWelcome, sizeof(nWelcome));
-            
-            //to avoid child process to be a zombie process
-            signal(SIGCHLD, SIG_IGN);
-
-            int nByteRead;
-            while(nByteRead = read(nConn, nBuff, BSIZE))
+            if (nEvents[i].data.fd == nSockfd)
             {
+                int nConn = AcceptConnection(nSockfd, 0);
+                cout<<"Countion Count = "<<++nConnCount<<endl;
+                nClients.push_back(nConn);
+
+                nEvent.data.fd = nConn;
+                nEvent.events = EPOLLIN | EPOLLET;
+                epoll_ctl(nEpollfd, EPOLL_CTL_ADD, nConn, &nEvent);
+                EchoBack(nConn, "Welcome to the server.\n");
+            }
+            else if (nEvents[i].events & EPOLLIN)
+            {
+                int nConn = nEvents[i].data.fd;
+                if(nConn < 0)
+                    continue;
+
+                char nBuff[BSIZE];
+                memset(nBuff, 0, sizeof(nBuff));
+                
+                int nByteRead = read(nConn, nBuff, BSIZE);
                 if(nByteRead > BSIZE)
                 {
                     cerr<<"server read"<<endl;
                     continue;
-                }                    
+                }
+                
                 Command *nCommand = new Command;
                 nCommand->Init(nBuff);
-                
                 cout<<"Recive message: "<<nBuff<<endl;
+
                 if(strncmp(nCommand->GetCommand(), "QUIT", 3) == 0)
-                {
                     break;
-                }
                 else if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
                 {
-                
                     struct stat nPath;
-                    if(stat(nCommand->GetArg(), &nPath)==0)
-                    {
-                        if(nPath.st_mode & S_IFREG)
-                        {
-                            if(fork()==0)
-                            {
-                                close(nConn);
-                                int nTranSock = CreateSocket(TRAN_PORT);
-                                int nFileConn = AcceptConnection(nTranSock);
-
-                                if(nFileConn > 0)
-                                    cout<<"File transmition port open.\n";
-                                else
-                                {
-                                    cerr<<"File transmition error\n";
-                                    exit(1);
-                                }
-                                
-                                int nFd = open(nCommand->GetArg(), O_RDONLY);
-
-                                struct stat nFstat;
-                                fstat(nFd, &nFstat);
-                                
-                                off_t nOffset = 0;
-                                int nSendtot = SendFile(nFileConn, nFd, &nOffset, nFstat.st_size);
-
-                                if(nSendtot != nFstat.st_size)
-                                {
-                                    cerr<<"sendfile error"<<endl;
-                                    exit(1);
-                                }
-                                
-                                close(nFd);
-                                close(nFileConn);
-                                exit(0);
-                            }
-                            else
-                            {
-                                char nMessage[BSIZE] = "Transmitting file..";
-                                write(nConn, nMessage, sizeof(nMessage));
-                                wait(nullptr);
-                            }
-
-                        }
-                        else if(nPath.st_mode & S_IFDIR)
-                        {
-                            char nFileList[BSIZE];
-                            memset(nFileList, 0, sizeof(nFileList));
-                            
-                            if(DealDir(nCommand->GetArg(), nFileList) < 0)
-                            {
-                                cerr<<"path error"<<endl;
-                                break;
-                            }
-                            
-                            if(strlen(nFileList) > BSIZE)
-                            {
-                                memset(nFileList, 0, sizeof(nFileList));
-                                strcat(nFileList, "too many files");
-                            }
-                            write(nConn, nFileList, BSIZE);
-
-                        }
-                        else
-                        {
-                            printf("not file or dir");
-                        }
+                    if(stat(nCommand->GetArg(), &nPath) != 0){
+                        EchoBack(nConn, "Error: file or dir does not exit\n");
+                        continue;
                     }
-                    else
-                    {
-                        char nError[BSIZE] = "Error: file or dir does not exit\n";
-                        write(nConn, nError, sizeof(nError));
-                    }
+
+                    if(nPath.st_mode & S_IFREG)
+                        DealFile(nConn, nCommand);
+                    else if(nPath.st_mode & S_IFDIR)
+                        DealDir(nConn, nCommand);
                 }
                 else
                 {
-                    char nUsage[BSIZE] = "Usage: GET file/dir,QUIT to quit";
-                    write(nConn, nUsage, sizeof(nUsage));
+                    EchoBack(nConn, "Usage: GET file/dir, QUIT to quit\n");
                     continue;
                 }
                 delete nCommand;
             }
-
         }
-
-        close(nConn);
     }
     
     close(nSockfd);
-
     return 0;
 }
