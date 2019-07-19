@@ -262,12 +262,15 @@ int main()
     
     int nEpollfd;
     nEpollfd = epoll_create1(EPOLL_CLOEXEC);
-
+    if (nEpollfd < 0)
+        ErrorExit("epoll_create1");
     struct epoll_event nEvent;
     nEvent.data.fd = nSockfd;
     nEvent.events = EPOLLIN | EPOLLET;
-    epoll_ctl(nEpollfd, EPOLL_CTL_ADD, nSockfd, &nEvent);
-    
+    int nEpollCtl = epoll_ctl(nEpollfd, EPOLL_CTL_ADD, nSockfd, &nEvent);
+    if (nEpollCtl < 0)
+        ErrorExit("epoll_ctl");
+
     int nConnCount = 0;
     vector<int>nClients;
     vector<struct epoll_event>nEvents(16);
@@ -291,6 +294,9 @@ int main()
             if (nEvents[i].data.fd == nSockfd)
             {
                 int nConn = AcceptConnection(nSockfd, 0);
+                if (nConn < 0)
+                    ErrorExit("AcceptConnection");
+
                 cout<<"Countion Count = "<<++nConnCount<<endl;
                 nClients.push_back(nConn);
 
@@ -319,7 +325,7 @@ int main()
                 nCommand->Init(nBuff);
                 cout<<"Recive message: "<<nBuff<<endl;
 
-                if(strncmp(nCommand->GetCommand(), "QUIT", 3) == 0)
+                if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
                     break;
                 else if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
                 {
