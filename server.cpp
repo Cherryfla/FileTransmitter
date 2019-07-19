@@ -273,11 +273,15 @@ int main()
 
     int nConnCount = 0;
     vector<int>nClients;
-    vector<struct epoll_event>nEvents(16);
 
+    int nCurrentSize = 16;
+   // vector<struct epoll_event>nEvents(16);
+
+    epoll_event *nEvents = new epoll_event [nCurrentSize];
     while(1)
     {
-        int nReady = epoll_wait(nEpollfd, &*nEvents.begin(), static_cast<int>(nEvents.size()), -1);
+        int nReady = epoll_wait(nEpollfd, nEvents, nCurrentSize, -1);
+        //int nReady = epoll_wait(nEpollfd, &*nEvents.begin(), static_cast<int>(nEvents.size()), -1);
 
         if (nReady == -1){
             if (errno == EINTR)
@@ -286,8 +290,19 @@ int main()
         }
         if (nReady == 0)
             continue;
-        if ((size_t)nReady == nEvents.size())
-            nEvents.resize(nEvents.size()*2);
+        if (nCurrentSize == nReady)
+        {
+            nCurrentSize *= 2;
+            epoll_event *nTemp = new epoll_event[nCurrentSize];
+
+            for(int i = 0; i < nReady; i++)
+                nTemp[i] = nEvents[i];
+            
+            delete [] nEvents;
+            nEvents = nTemp;
+        }
+        // if ((size_t)nReady == nEvents.size())
+        //     nEvents.resize(nEvents.size()*2);
 
         for (int i = 0 ; i < nReady; i++)
         {
