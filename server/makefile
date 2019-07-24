@@ -1,13 +1,15 @@
 cc = g++ 
 CFLAGS = -std=c++11 -g -Wall
+tar = server
+obj = server.o main.o
 
-server:server.o
-	$(cc) $(CFLAGS) -o server server.o
+$(tar):$(obj) 
+	$(cc) $(CFLAGS) $(obj) -o $(tar) 
 
 %.o:%.cpp
 	$(cc) $(CFLAGS) -c $< -o $@
 
 .PHONY:clean
 clean:
-	rm *.o server
+	rm $(tar) $(obj)
 
