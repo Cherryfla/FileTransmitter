@@ -1,9 +1,13 @@
-cc = g++ 
+cc = g++
 CFLAGS = -std=c++11 -g -Wall
 
 all:server client
-server:server.o
-	$(cc) $(CFLAGS) -o server server.o
+
+.PHONY:server
+server:
+	cd server && make && cd ..
+
+.PHONY:client
 client:client.o
 	$(cc) $(CFLAGS) -o client client.o
 
@@ -12,4 +16,4 @@ client:client.o
 
 .PHONY:clean
 clean:
-	rm *.o server client
+	rm *.o client && cd ./server && make clean

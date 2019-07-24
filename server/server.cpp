@@ -256,6 +256,45 @@ void DealFile(int nConn, Command* nCommand){
         wait(nullptr);
     }
 }
+int FileTransmit(int nConn)
+{
+    char nBuff[BSIZE];
+    memset(nBuff, 0, sizeof(nBuff));
+    
+    int nByteRead = read(nConn, nBuff, BSIZE);
+    if(nByteRead > BSIZE)
+    {
+        cerr<<"server read"<<endl;
+        return -1;
+    }
+    
+    Command *nCommand = new Command;
+    nCommand->Init(nBuff);
+    cout<<"Recive message: "<<nBuff<<endl;
+
+    if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
+        return 1;
+    else if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
+    {
+        struct stat nPath;
+        if(stat(nCommand->GetArg(), &nPath) != 0){
+            EchoBack(nConn, "Error: file or dir does not exit\n");
+            return 0;
+        }
+
+        if(nPath.st_mode & S_IFREG)
+            DealFile(nConn, nCommand);
+        else if(nPath.st_mode & S_IFDIR)
+            DealDir(nConn, nCommand);
+    }
+    else
+    {
+        EchoBack(nConn, "Usage: GET file/dir, QUIT to quit\n");
+        return 0;
+    }
+    delete nCommand;
+    return 0;
+}
 int main()
 {
     int nSockfd = CreateSocket(CMD_PORT); 
@@ -274,7 +313,7 @@ int main()
     int nConnCount = 0;
     vector<int>nClients;
 
-    int nCurrentSize = 16;
+    int nCurrentSize = 1;
    // vector<struct epoll_event>nEvents(16);
 
     epoll_event *nEvents = new epoll_event [nCurrentSize];
@@ -323,44 +362,19 @@ int main()
             else if (nEvents[i].events & EPOLLIN)
             {
                 int nConn = nEvents[i].data.fd;
-                if(nConn < 0)
+                if (nConn < 0)
                     continue;
-
-                char nBuff[BSIZE];
-                memset(nBuff, 0, sizeof(nBuff));
                 
-                int nByteRead = read(nConn, nBuff, BSIZE);
-                if(nByteRead > BSIZE)
+                int nRes = FileTransmit(nConn); 
+                if (nRes == -1)
                 {
-                    cerr<<"server read"<<endl;
-                    continue;
+                    cerr<<"File transmit error.\n";
+                    exit(1);
                 }
-                
-                Command *nCommand = new Command;
-                nCommand->Init(nBuff);
-                cout<<"Recive message: "<<nBuff<<endl;
-
-                if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
+                else if (nRes == 1)
+                {
                     break;
-                else if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
-                {
-                    struct stat nPath;
-                    if(stat(nCommand->GetArg(), &nPath) != 0){
-                        EchoBack(nConn, "Error: file or dir does not exit\n");
-                        continue;
-                    }
-
-                    if(nPath.st_mode & S_IFREG)
-                        DealFile(nConn, nCommand);
-                    else if(nPath.st_mode & S_IFDIR)
-                        DealDir(nConn, nCommand);
                 }
-                else
-                {
-                    EchoBack(nConn, "Usage: GET file/dir, QUIT to quit\n");
-                    continue;
-                }
-                delete nCommand;
             }
         }
     }

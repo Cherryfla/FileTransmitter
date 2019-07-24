@@ -147,9 +147,9 @@ void TryRecvFile(char* fServerIp, Command *nCommand)
     memset(nFileName, 0, sizeof(nFileName));
     strncpy(nFileName, nFilePath+nPos+1, nNameLen-nPos-1);
     
-    if(access(nFileName,0) == 0){
+    if (access(nFileName, F_OK) == 0){
         int nQueryRes = DoQuery();
-        if(!nQueryRes){
+        if(nQueryRes == 0){
             cout<<"Terminated.\n";
             close(nFileConn);
             exit(0);
@@ -209,7 +209,7 @@ int main(int argc, char *argv[])
     while(true)
     {
         nRset = nAllset;
-        int nSelectRes = nSelectRes = select(nSockfd+1, &nRset, nullptr, nullptr, nullptr);
+        int nSelectRes = select(nSockfd+1, &nRset, nullptr, nullptr, nullptr);
         if(nSelectRes == -1 && errno == EINTR )
             continue;
         else if(nSelectRes == -1)
