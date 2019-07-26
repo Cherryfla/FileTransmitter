@@ -1,7 +1,7 @@
 cc = g++ 
 CFLAGS = -std=c++11 -g -Wall
 tar = server
-obj = server.o main.o
+obj = server.o ProcessPool.o main.o 
 
 $(tar):$(obj) 
 	$(cc) $(CFLAGS) $(obj) -o $(tar) 

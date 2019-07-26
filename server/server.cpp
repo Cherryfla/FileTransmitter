@@ -5,27 +5,17 @@ Command::Command()
     memset(command, 0, sizeof(command));
     memset(arg, 0, sizeof(arg));
 }
-Command::void Init(char *fCommand)
+void Command::Init(char *fCommand)
 {
-    sscanf(fCommand, "%s %s", this->command, this->arg);
+    sscanf(fCommand, "%s %s", this->command, this->arg);    
 }
-Command::char* GetCommand()
+char* Command::GetCommand()
 {
     return static_cast<char*>(command);
 }
-Command::char* GetArg()
+char* Command::GetArg()
 {
     return static_cast<char*>(arg);
-}
-
-inline void EchoBack(int nConn, const char nMessage[])
-{
-    write(nConn, nMessage, BSIZE);
-}
-inline void  ErrorExit(const char nError[])
-{
-    perror(nError);
-    exit(EXIT_FAILURE);
 }
 int CreateSocket(int fPort)
 {
@@ -110,7 +100,7 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
         toRead = count<BSIZE ? count : BSIZE;
         numRead = read(in_fd, buf, toRead);
         
-        //cout<<"numRead: "<<numRead<<endl;
+        //std::cout<<"numRead: "<<numRead<<std::endl;
         if(numRead == -1)
             return -1;
         if(numRead == 0)
@@ -121,7 +111,7 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
             return -1;
         if(numSent == 0) 
         {               
-            cerr<<"sendfile: write() transferred 0 bytes\n";
+            std::cerr<<"sendfile: write() transferred 0 bytes\n";
             return -1;
         }
 
@@ -149,10 +139,10 @@ void DealFile(int nConn, Command* nCommand)
         int nFileConn = AcceptConnection(nTranSock, 1);
         
         if(nFileConn > 0)
-            cout<<"File transmition port open.\n";
+            std::cout<<"File transmition port open.\n";
         else
         {
-            cerr<<"failed to transmit file.\n";
+            std::cerr<<"failed to transmit file.\n";
             EchoBack(nConn, "failed to transmit file.\n");
             return;
         }
@@ -167,7 +157,7 @@ void DealFile(int nConn, Command* nCommand)
 
         if(nSendtot != nFstat.st_size)
         {
-            cerr<<"sendfile error"<<endl;
+            std::cerr<<"sendfile error"<<std::endl;
             exit(1);
         }
         
@@ -218,7 +208,7 @@ void DealDir(int fConn,Command* nCommand)
     
     if(Split(nCommand->GetArg(), nFileList) < 0)
     {
-        cerr<<"path error"<<endl;
+        std::cerr<<"path error"<<std::endl;
         return;
     }
     
@@ -230,21 +220,23 @@ void DealDir(int fConn,Command* nCommand)
     write(fConn, nFileList, BSIZE);
 }
 
-int FileTransmit(int nConn)
+int FileTransmit(void* arg)
 {
+    int nConn = *(int*)arg;
     char nBuff[BSIZE];
     memset(nBuff, 0, sizeof(nBuff));
     
     int nByteRead = read(nConn, nBuff, BSIZE);
     if(nByteRead > BSIZE)
     {
-        cerr<<"server read"<<endl;
+        std::cerr<<"server read"<<std::endl;
         return -1;
     }
     
     Command *nCommand = new Command;
     nCommand->Init(nBuff);
-    cout<<"Recive message: "<<nBuff<<endl;
+    if (strlen(nBuff) > 0)
+        std::cout<<"Receive message: "<<nBuff<<std::endl;
 
     if(strncmp(nCommand->GetCommand(), "QUIT", 4) == 0)
         return 1;
@@ -263,7 +255,10 @@ int FileTransmit(int nConn)
     }
     else
     {
-        EchoBack(nConn, "Usage: GET file/dir, QUIT to quit\n");
+        if (EchoBack(nConn, "Usage: GET file/dir, QUIT to quit\n") == -1)
+        {
+            printf("Error: %s\n",strerror(errno));
+        }
         return 0;
     }
     delete nCommand;

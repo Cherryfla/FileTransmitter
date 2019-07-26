@@ -36,8 +36,15 @@ class Command{
         char* GetArg();
 };
 
-inline void EchoBack(int nConn, const char nMessage[]); //向连接返回信息
-inline void  ErrorExit(const char nError[]);            //错误提示并推出
+inline int EchoBack(int nConn, const char nMessage[]) //向连接返回信息
+{
+    return write(nConn, nMessage, BSIZE);
+}
+inline void ErrorExit(const char nError[])            //错误提示并推出
+{
+    perror(nError);
+    exit(EXIT_FAILURE);
+}
 
 int CreateSocket(int fPort);                            //创建套接字
 int AcceptConnection(int fd, unsigned int wait_seconds);//给定时限接受套接字
@@ -45,5 +52,6 @@ int Split(char *fPath, char *nResult);                  //得到目录下的文�
 ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count);//传送文件
 void DealDir(int fConn, Command* nCommand);             //处理GET请求且为目录的情况
 void DealFile(int nConn, Command* nCommand);            //处理GET请求且为文件的情况
-int FileTransmit(int nConn);                            //处理GET命令
+int FileTransmit(void* arg);                            //处理GET命令
+
 #endif
