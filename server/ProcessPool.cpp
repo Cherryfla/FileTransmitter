@@ -37,7 +37,6 @@ void AddFd(int nEpollfd, int fd)
         perror("epoll_ctl");
         exit(EXIT_FAILURE);
     }
-    
 }
 void RemoveFd(int nEpollfd, int fd)
 {
@@ -90,7 +89,7 @@ void ProcessPool::SetupSigPipe()
 	AddSig(SIGCHLD, SigHandler);
 	AddSig(SIGTERM, SigHandler);  
     AddSig(SIGINT, SigHandler);  
-    AddSig(SIGPIPE, SIG_IGN); 
+    signal(SIGPIPE, SIG_IGN); 
 }
 void ProcessPool::Run()
 {
@@ -134,7 +133,7 @@ void ProcessPool::RunChild()
 		for(int i=0; i < nReady; i++)
 		{
 			int nReadyFd = nEvents[i].data.fd;
-			if(nReadyFd == nPipeFd)
+			if((nReadyFd == nPipeFd) && (nEvents[i].events & EPOLLIN))
 			{
 				int nTemp = 0;
 				int nRes = read(nReadyFd, (char*)&nTemp, sizeof(nTemp));
@@ -146,16 +145,16 @@ void ProcessPool::RunChild()
                     struct sockaddr_in addr;
                     socklen_t addrlen = sizeof(struct sockaddr_in);
                     int nConn = accept(nListenfd, (struct sockaddr*)&addr, &addrlen);
-					if( nConn < 0)
+					if (nConn < 0)
 					{
 						perror("accept");
 						continue;
 					}
-                    printf("ip=%s, port=%d\n",inet_ntoa(addr.sin_addr),htons(addr.sin_port));
+                    printf("IP=%s, Port=%d Connected.\n",inet_ntoa(addr.sin_addr),htons(addr.sin_port));
 					AddFd(nEpollfd, nConn);
 				}
 			}
-			else if(nReadyFd == SigPipeFd[0])
+			else if((nReadyFd == SigPipeFd[0]) && (nEvents[i].events & EPOLLIN))
 			{  
                 char Signals[BSIZE];  
                 int Res = recv(SigPipeFd[0], Signals, sizeof(Signals), 0);  
@@ -167,9 +166,8 @@ void ProcessPool::RunChild()
 					{
 						case SIGCHLD:   
 							pid_t pid;   
-							while((pid = waitpid(-1, nullptr, WNOHANG)) > 0) {  
-								continue;  
-							}  
+							while((pid = waitpid(-1, nullptr, WNOHANG)) > 0)
+								continue;    
 							break;  
 						case SIGTERM:  
 						case SIGINT: {  
@@ -181,8 +179,9 @@ void ProcessPool::RunChild()
 					}  
 				}   
             } 
-			else
+			else if(nEvents[i].events & EPOLLIN)
 			{
+                //printf("Receive message.\n");
                 if(nReadyFd < 0)
                     continue;
                 
@@ -239,7 +238,7 @@ void ProcessPool::RunParent()
 		for(int i=0; i < nReady; i++)
 		{
 			int nReadyFd = nEvents[i].data.fd;
-			if(nReadyFd == nListenfd)
+			if((nReadyFd == nListenfd) && (nEvents[i].events & EPOLLIN) )
 			{
 				int i = nProcessCounter;
 				//RR
@@ -260,7 +259,7 @@ void ProcessPool::RunParent()
 				write(nSubProcess[i].nPipeFd[0], (char*)&nTemp, sizeof(nTemp));
 				printf("Send request to child: %d\n", i);
 			}
-			else if (nReadyFd == SigPipeFd[0])
+			else if ((nReadyFd == SigPipeFd[0]) && (nEvents[i].events & EPOLLIN))
 			{   
 				char Signals[BSIZE];  
                 int Res = recv(SigPipeFd[0], Signals, sizeof(Signals), 0);

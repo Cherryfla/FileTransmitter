@@ -195,9 +195,9 @@ int main(int argc, char *argv[])
     char sendbuf[BSIZE];
     char recvbuf[BSIZE];
     
-    int nReadnum = read(nSockfd, recvbuf, BSIZE);
+    /* int nReadnum = read(nSockfd, recvbuf, BSIZE);
     if(nReadnum > 0)
-        cerr<<recvbuf<<endl;
+        cerr<<recvbuf<<endl; */
     
     fd_set nRset,nAllset;
     FD_ZERO(&nRset);
@@ -220,10 +220,10 @@ int main(int argc, char *argv[])
         if(FD_ISSET(STDIN_FILENO, &nRset))
         {
             fgets(sendbuf, sizeof(sendbuf), stdin);
-
+            
             Command *nCommand = new Command;
             nCommand->Init(sendbuf);
-            
+            printf("Message to send :%s\n",sendbuf);
             write(nSockfd, sendbuf, sizeof(sendbuf)); 
             
             if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)

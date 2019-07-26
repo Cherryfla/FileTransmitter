@@ -223,6 +223,8 @@ void DealDir(int fConn,Command* nCommand)
 int FileTransmit(void* arg)
 {
     int nConn = *(int*)arg;
+    
+   // printf("nConn:%d\n",nConn);
     char nBuff[BSIZE];
     memset(nBuff, 0, sizeof(nBuff));
     
