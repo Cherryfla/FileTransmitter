@@ -52,8 +52,8 @@ ssize_t ReceiveFile(FILE *out_fd, int in_fd)
     while(1)
     {
         numRead = read(in_fd, buf, BSIZE);
-        if(numRead == -1)
-            return -1;
+        // if(numRead == -1)
+        //     return -1;
         if(numRead == 0)
             break;
         fwrite(buf, 1, numRead, out_fd);
@@ -223,7 +223,7 @@ int main(int argc, char *argv[])
             
             Command *nCommand = new Command;
             nCommand->Init(sendbuf);
-            printf("Message to send :%s\n",sendbuf);
+           // printf("Message to send :%s\n",sendbuf);
             write(nSockfd, sendbuf, sizeof(sendbuf)); 
             
             if(strncmp(nCommand->GetCommand(), "GET", 3) == 0)
@@ -258,7 +258,7 @@ int main(int argc, char *argv[])
                 cerr<<"Receive limit exceed."<<endl;
             }
             if(nReadnum == 0){
-                cout<<"Section terminated.";
+                cout<<"Section terminated.\n";
                 break;
             }
             cout<<recvbuf<<endl;

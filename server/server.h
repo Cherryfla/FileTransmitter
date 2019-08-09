@@ -23,7 +23,15 @@
 
 #define CMD_PORT 8080
 #define TRAN_PORT 8081
+#define REDIS_PORT 6379
 #define BSIZE 1024
+#define COMMAND_NUM 2
+
+const char RedisKey[COMMAND_NUM][20]=
+{
+    "SERVER:GET:FILE",
+    "SERVER:GET:DIR"
+};
 
 class Command{
     private:

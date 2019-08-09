@@ -1,4 +1,7 @@
 #include "server.h"
+#include "MyRedis.h"
+
+static MyRedis nRedis;
 
 Command::Command()
 {
@@ -101,14 +104,14 @@ ssize_t SendFile(int out_fd, int in_fd, off_t * offset, size_t count )
         numRead = read(in_fd, buf, toRead);
         
         //std::cout<<"numRead: "<<numRead<<std::endl;
-        if(numRead == -1)
-            return -1;
+        // if(numRead == -1)
+        //     return -1;
         if(numRead == 0)
             break;                      /* EOF */
 
         numSent = write(out_fd, buf, numRead);
-        if(numSent == -1)
-            return -1;
+        // if(numSent == -1)
+        //     return -1;
         if(numSent == 0) 
         {               
             std::cerr<<"sendfile: write() transferred 0 bytes\n";
@@ -219,9 +222,39 @@ void DealDir(int fConn,Command* nCommand)
     }
     write(fConn, nFileList, BSIZE);
 }
+void DealInfo(int fConn)
+{
+    char Sendbuf[BSIZE];
+    char Temp[100];
+
+    memset(Sendbuf, 0, sizeof(Sendbuf));
+    for(int i=0; i<COMMAND_NUM; i++)
+    {   
+        memset(Temp, 0, sizeof(Temp));
+        strcat(Temp, "GET ");
+        strcat(Temp, RedisKey[i]);
+        nRedis.SendCommand(Temp);
+        if(nRedis.GetReply() == nullptr)
+        {
+            printf("Command INFO error.\n");
+            return;
+        }
+        
+        strcat(Sendbuf, RedisKey[i]+7);
+        strcat(Sendbuf, " ");
+        if((nRedis.GetReply())->type == REDIS_REPLY_NIL)
+            strcat(Sendbuf, "0");
+        else
+            strcat(Sendbuf, (nRedis.GetReply())->str);
+        strcat(Sendbuf, " times\n");
+    }
+    write(fConn, Sendbuf, sizeof(Sendbuf));
+}
 
 int FileTransmit(void* arg)
 {
+    if(!nRedis.JudgeConnect())
+        nRedis.Connect("127.0.0.1", REDIS_PORT);
     int nConn = *(int*)arg;
     
    // printf("nConn:%d\n",nConn);
@@ -251,9 +284,20 @@ int FileTransmit(void* arg)
         }
 
         if(nPath.st_mode & S_IFREG)
+        {
             DealFile(nConn, nCommand);
+            nRedis.CommandSet(RedisKey[0]);
+        }
         else if(nPath.st_mode & S_IFDIR)
+        {
             DealDir(nConn, nCommand);
+            nRedis.CommandSet(RedisKey[1]);
+        }
+    }
+    else if(strncmp(nCommand->GetCommand(), "INFO", 4) == 0)
+    {
+        printf("receive INFO\n");
+        DealInfo(nConn);
     }
     else
     {

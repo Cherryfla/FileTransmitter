@@ -5,9 +5,10 @@ make之后
 server: ./server
 client: ./client ip
 
-在client中
+## 在client中
 + 使用 GET dir 来获取目录下的文件列表
 + 使用 GET file 来得到文件
++ 使用 INFO 来获取一天内各命令执行次数（需要redis支持）
 + 使用 QUIT 退出
 
 ## 值得改进的地方
